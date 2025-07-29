@@ -7,11 +7,15 @@ def extract_joins(sql: str):
     Returns a list of dicts with left_table, right_table, columns, and join_type.
     """
     parsed = sqlglot.parse_one(sql)
+    tables_and_aliases = get_tables_and_aliases(sql)
+    tables = tables_and_aliases["tables"]
+    aliases = tables_and_aliases["aliases"]
+    print(tables, aliases)
     joins = []
     for join in parsed.find_all(exp.Join):
         join_type = join.args.get("kind", "INNER").upper()
         right_table_expr = join.this
-        right_table = right_table_expr.sql() if right_table_expr else None
+        right_table = right_table_expr.sql().split('AS')[0] if right_table_expr else None
         # Find the left table by traversing up the tree
         left_table = None
         parent = join.parent
@@ -29,52 +33,25 @@ def extract_joins(sql: str):
                 left_col = eq.left.sql()
                 right_col = eq.right.sql()
                 columns.append((left_col, right_col))
+        
+        left_alias = columns[0][0].split('.')[0] if columns else left_table
+        print(left_alias)
+        if left_alias in aliases:
+            index = aliases.index(left_alias)
+            print(index)
+            left_table = tables[index]
+            print(left_table)
+        
         joins.append({
-            "left_table": columns[0][0].split('.')[0] if columns else left_table,
+            "left_table": left_table,
             "right_table": right_table,
             "columns": columns,
             "join_type": join_type
         })
     return joins
 
-def extract_tables_and_aliases(sql: str):
-    """
-    Extracts all tables and their aliases from a SQL query using sqlglot.
-    Returns a list of dicts with 'table' and 'alias' keys.
-    """
-    parsed = sqlglot.parse_one(sql)
-    tables = []
-    # Process FROM clauses
-    for from_clause in parsed.find_all(exp.Table):
-        print(from_clause.args)
-        source = from_clause.args.get("this")
-        print(source)
-        if isinstance(source, exp.TableAlias):
-            table_expr = source.this
-            alias = source.alias
-            table_name = table_expr.name if isinstance(table_expr, exp.Table) else table_expr.sql()
-            tables.append({'table': table_name, 'alias': alias})
-        elif isinstance(source, exp.Table):
-            tables.append({'table': source.name, 'alias': None})
 
-    # Process JOIN clauses
-    for join_clause in parsed.find_all(exp.Join):
-        source = join_clause.args.get("this")
-        
-        if isinstance(source, exp.Alias):
-            source_split = str(source).split('AS')
-            print(source_split)
-            table_expr = exp.Table(name=source_split[0].strip())
-            alias = source_split[1].strip() if len(source_split) > 1 else None
-            table_name = table_expr.name if isinstance(table_expr, exp.Table) else table_expr.sql()
-            tables.append({'table': table_name, 'alias': alias})
-        elif isinstance(source, exp.Table):
-            tables.append({'table': source.name, 'alias': None})
-    return tables
-
-
-
-def print_tables_and_aliases(sql: str):
+def get_tables_and_aliases(sql: str) -> dict[str, list[str]]:
     """
     Parses the given SQL string and prints the table name and alias (if any) for each table used.
     
@@ -82,6 +59,11 @@ def print_tables_and_aliases(sql: str):
         sql (str): The SQL query string to analyze.
     """
     parsed = sqlglot.parse_one(sql)
+    
+    tables = {
+        "tables": [],
+        "aliases": []
+    }
     for table in parsed.find_all(exp.Table):
         table_name = table.name  # actual table name
         alias = None
@@ -90,25 +72,26 @@ def print_tables_and_aliases(sql: str):
         parent = table.parent
         if isinstance(parent, exp.From) or isinstance(parent, exp.Join):
             alias = parent.alias_or_name
-
-        print(f"Table: {table_name}, Alias: {alias or 'None'}")
+        
+        tables["tables"].append(table_name)
+        tables["aliases"].append(alias or None)
+    
+    return tables
 
 
 # Example usage
 if __name__ == "__main__":
-    # sql = """
-    # SELECT * FROM act as a
-    # INNER JOIN bad as b ON a.id = b.a_id
-    # LEFT JOIN cat as c ON b.id = c.b_id AND c.flag = 1
-    # """
-    # for join in extract_joins(sql):
-    #     print(join)
-    # for tbl in extract_tables_and_aliases(sql):
-    #     print(tbl)
-        
     sql = """
-    SELECT u.name, o.amount
-    FROM users u
-    JOIN orders o ON u.id = o.user_id
+    SELECT * FROM act as a
+    INNER JOIN bad as b ON a.id = b.a_id
+    LEFT JOIN cat as c ON b.id = c.b_id AND c.flag = 1
     """
-    print_tables_and_aliases(sql)
+    for join in extract_joins(sql):
+        print(join)
+    
+    # sql = """
+    # SELECT u.name, o.amount
+    # FROM users u
+    # JOIN orders o ON u.id = o.user_id
+    # """
+    # get_tables_and_aliases(sql)
