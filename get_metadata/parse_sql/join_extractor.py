@@ -44,25 +44,71 @@ def extract_tables_and_aliases(sql: str):
     """
     parsed = sqlglot.parse_one(sql)
     tables = []
-    for table in parsed.find_all(exp.Table):
-        table_name = table.name
-        alias = None
-        # Check if parent is an alias expression
-        parent = table.parent
-        if isinstance(parent, exp.Alias):
-            alias = parent.alias_or_name
-        tables.append({
-            'table': table_name,
-            'alias': alias
-        })
+    # Process FROM clauses
+    for from_clause in parsed.find_all(exp.Table):
+        print(from_clause.args)
+        source = from_clause.args.get("this")
+        print(source)
+        if isinstance(source, exp.TableAlias):
+            table_expr = source.this
+            alias = source.alias
+            table_name = table_expr.name if isinstance(table_expr, exp.Table) else table_expr.sql()
+            tables.append({'table': table_name, 'alias': alias})
+        elif isinstance(source, exp.Table):
+            tables.append({'table': source.name, 'alias': None})
+
+    # Process JOIN clauses
+    for join_clause in parsed.find_all(exp.Join):
+        source = join_clause.args.get("this")
+        
+        if isinstance(source, exp.Alias):
+            source_split = str(source).split('AS')
+            print(source_split)
+            table_expr = exp.Table(name=source_split[0].strip())
+            alias = source_split[1].strip() if len(source_split) > 1 else None
+            table_name = table_expr.name if isinstance(table_expr, exp.Table) else table_expr.sql()
+            tables.append({'table': table_name, 'alias': alias})
+        elif isinstance(source, exp.Table):
+            tables.append({'table': source.name, 'alias': None})
     return tables
+
+
+
+def print_tables_and_aliases(sql: str):
+    """
+    Parses the given SQL string and prints the table name and alias (if any) for each table used.
+    
+    Args:
+        sql (str): The SQL query string to analyze.
+    """
+    parsed = sqlglot.parse_one(sql)
+    for table in parsed.find_all(exp.Table):
+        table_name = table.name  # actual table name
+        alias = None
+
+        # Check if the parent node is an alias expression
+        parent = table.parent
+        if isinstance(parent, exp.From) or isinstance(parent, exp.Join):
+            alias = parent.alias_or_name
+
+        print(f"Table: {table_name}, Alias: {alias or 'None'}")
+
 
 # Example usage
 if __name__ == "__main__":
+    # sql = """
+    # SELECT * FROM act as a
+    # INNER JOIN bad as b ON a.id = b.a_id
+    # LEFT JOIN cat as c ON b.id = c.b_id AND c.flag = 1
+    # """
+    # for join in extract_joins(sql):
+    #     print(join)
+    # for tbl in extract_tables_and_aliases(sql):
+    #     print(tbl)
+        
     sql = """
-    SELECT * FROM a
-    INNER JOIN b ON a.id = b.a_id
-    LEFT JOIN c ON b.id = c.b_id AND c.flag = 1
+    SELECT u.name, o.amount
+    FROM users u
+    JOIN orders o ON u.id = o.user_id
     """
-    for join in extract_joins(sql):
-        print(join)
+    print_tables_and_aliases(sql)
